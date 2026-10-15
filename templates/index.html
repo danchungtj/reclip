@@ -9,17 +9,17 @@
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f4f1eb;
-      --fg: #3a3a38;
+      --bg: #1e1e1e;
+      --fg: #cccccc;
       --accent: #e85d2a;
-      --accent-hover: #d04e1f;
-      --muted: #9c9889;
-      --card: #fff;
-      --card-border: #e2ded6;
-      --success: #2d8a4e;
-      --error: #c43d3d;
+      --accent-hover: #f06b3a;
+      --muted: #858585;
+      --card: #252526;
+      --card-border: #3c3c3c;
+      --success: #4caf50;
+      --error: #f44336;
       --radius: 14px;
-      --shimmer: linear-gradient(90deg, #ebe8e2 25%, #f0ede7 50%, #ebe8e2 75%);
+      --shimmer: linear-gradient(90deg, #2d2d30 25%, #3c3c3c 50%, #2d2d30 75%);
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -119,7 +119,7 @@
       letter-spacing: 0.03em;
       text-transform: uppercase;
     }
-    .pill.active { background: var(--fg); color: var(--bg); }
+    .pill.active { background: #cccccc; color: #1e1e1e; }
     .pill:not(.active):hover { color: var(--fg); }
 
     .fetch-btn {
@@ -247,8 +247,8 @@
       padding: 6px 14px;
       border: none;
       border-radius: 7px;
-      background: var(--fg);
-      color: var(--bg);
+      background: #cccccc;
+      color: #1e1e1e;
       font-family: 'DM Mono', monospace;
       font-size: 0.7rem;
       font-weight: 500;
@@ -257,7 +257,7 @@
       letter-spacing: 0.03em;
       text-transform: uppercase;
     }
-    .card-dl-btn:hover { background: #2d2d2a; }
+    .card-dl-btn:hover { background: #ffffff; }
     .card-dl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .card-dl-btn.done { background: var(--success); color: #fff; }
     .card-dl-btn.error { background: var(--error); color: #fff; }
@@ -282,9 +282,9 @@
       transition: all 0.2s;
     }
     .q-chip.active {
-      border-color: var(--fg);
-      color: var(--fg);
-      background: rgba(26,26,24,0.04);
+      border-color: #cccccc;
+      color: #cccccc;
+      background: rgba(255,255,255,0.08);
     }
     .q-chip:hover:not(.active) { border-color: var(--muted); }
 
@@ -330,8 +330,8 @@
       padding: 12px;
       border: none;
       border-radius: 10px;
-      background: var(--fg);
-      color: var(--bg);
+      background: #cccccc;
+      color: #1e1e1e;
       font-family: 'DM Mono', monospace;
       font-size: 0.82rem;
       font-weight: 500;
@@ -340,7 +340,7 @@
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
-    .dl-all-btn:hover { background: #2d2d2a; }
+    .dl-all-btn:hover { background: #ffffff; }
     .dl-all-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .spin {

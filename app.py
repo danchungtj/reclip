@@ -1,9 +1,11 @@
 import os
+import sys
 import uuid
 import glob
 import json
 import subprocess
 import threading
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify, send_file, render_template
 
 app = Flask(__name__)
@@ -12,12 +14,149 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 jobs = {}
 
+def get_proxy():
+    proxy = (
+        os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("http_proxy")
+        or os.environ.get("ALL_PROXY")
+        or os.environ.get("all_proxy")
+    )
+    if not proxy:
+        return None
+    proxy = proxy.strip()
+    if not proxy:
+        return None
+    if "://" not in proxy:
+        proxy = f"http://{proxy}"
+    return proxy
+
+
+def get_cookies_browser():
+    """Return browser string for --cookies-from-browser, or None to disable.
+
+    Format: "browser" or "browser:profile_path"
+    Examples:
+      - "chrome"
+      - "firefox:C:\\Users\\me\\AppData\\Roaming\\zen\\Profiles\\xxx.Default (release)"
+
+    If COOKIES_BROWSER is not set, auto-detects a Zen profile (Firefox-based).
+    """
+    value = (os.environ.get("COOKIES_BROWSER") or "").strip()
+    if not value or value.lower() in ("0", "false", "none", "off"):
+        # Auto-detect Zen browser profile (Firefox-based, shares cookies.sqlite format)
+        try:
+            appdata = os.environ.get("APPDATA", "")
+            zen_profiles_dir = os.path.join(appdata, "zen", "Profiles")
+            if os.path.isdir(zen_profiles_dir):
+                for entry in sorted(os.listdir(zen_profiles_dir), reverse=True):
+                    if "Default" in entry:
+                        cookies = os.path.join(zen_profiles_dir, entry, "cookies.sqlite")
+                        if os.path.exists(cookies):
+                            return f"firefox:{os.path.join(zen_profiles_dir, entry)}"
+        except OSError:
+            pass
+        return None
+    # Only lowercase the browser name (before the colon), preserve path case
+    if ":" in value:
+        browser, sep, rest = value.partition(":")
+        return f"{browser.lower()}{sep}{rest}"
+    return value.lower()
+
+
+def debug_env():
+    """Print_env hints for debugging."""
+    cookies = get_cookies_browser()
+    print(f"[reclip] COOKIES_BROWSER env = {os.environ.get('COOKIES_BROWSER')!r}", flush=True)
+    print(f"[reclip] Resolved cookies arg = {cookies!r}", flush=True)
+    print(f"[reclip] Deno in PATH: {bool(os.environ.get('PATH', '') and 'deno' in os.environ.get('PATH', '').lower())}", flush=True)
+
+
+# Print env debug info on startup
+debug_env()
+
+
+def build_youtube_args():
+    """yt-dlp args that work around YouTube's 2025-2026 anti-bot countermeasures.
+
+    - player_client=default,-android_sdkless,-ios : avoid clients that YouTube
+      forces SABR streaming on (SABR responses have no direct URLs).
+    - --remote-components ejs:github : download the JS challenge solver script
+      from yt-dlp/ejs releases (needed for signature + n-parameter solving).
+    - Spoofed User-Agent : YouTube fingerprints yt-dlp's default UA.
+    - ffmpeg reconnect args : survive brief network blips during long downloads.
+
+    Requires:
+    - Deno installed (yt-dlp uses it to run the JS challenge solver)
+    - bgutil-ytdlp-pot-provider Python plugin (provides PO Tokens via Deno script mode)
+    - bgutil-ytdlp-pot-provider Deno/Node server running on port 4416 (for HTTP mode)
+    """
+    return [
+        "--extractor-args", "youtube:player_client=default,-android_sdkless,-ios",
+        "--remote-components", "ejs:github",
+        "--user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--downloader-args",
+        "ffmpeg_i:-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    ]
+
+
+def add_cookies_arg(cmd):
+    """Attach --cookies-from-browser if COOKIES_BROWSER is set."""
+    browser = get_cookies_browser()
+    if browser:
+        cmd += ["--cookies-from-browser", browser]
+
+
+def normalize_url(raw_url):
+    if not raw_url:
+        return ""
+    url = str(raw_url).strip()
+    if (url.startswith("`") and url.endswith("`")) or (url.startswith('"') and url.endswith('"')) or (url.startswith("'") and url.endswith("'")):
+        url = url[1:-1].strip()
+    url = url.strip("`").strip()
+    return url
+
+
+def validate_url(url):
+    if any(ch.isspace() for ch in url):
+        return False
+    lower = url.lower()
+    if lower.count("http://") + lower.count("https://") != 1:
+        return False
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    if not parsed.netloc:
+        return False
+    return True
+
+
+def yt_dlp_error_text(result):
+    stderr = (result.stderr or "").strip()
+    stdout = (result.stdout or "").strip()
+    text = stderr if stderr else stdout
+    if not text:
+        return "yt-dlp failed"
+    return text.splitlines()[-1].strip() or "yt-dlp failed"
+
 
 def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "-o", out_template]
+    cmd = [sys.executable, "-m", "yt_dlp", "--no-playlist", "-o", out_template]
+
+    proxy = get_proxy()
+    if proxy:
+        cmd += ["--proxy", proxy]
+
+    add_cookies_arg(cmd)
+
+    # YouTube-specific countermeasure args (applied for all sites; harmless for non-YouTube)
+    cmd += build_youtube_args()
 
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
@@ -32,7 +171,7 @@ def run_download(job_id, url, format_choice, format_id):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             job["status"] = "error"
-            job["error"] = result.stderr.strip().split("\n")[-1]
+            job["error"] = yt_dlp_error_text(result)
             return
 
         files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*"))
@@ -81,15 +220,25 @@ def index():
 @app.route("/api/info", methods=["POST"])
 def get_info():
     data = request.json
-    url = data.get("url", "").strip()
+    url = normalize_url((data or {}).get("url", ""))
     if not url:
         return jsonify({"error": "No URL provided"}), 400
+    if not validate_url(url):
+        return jsonify({"error": "Invalid URL. Paste a single full URL starting with http:// or https://"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j", url]
+    cmd = [sys.executable, "-m", "yt_dlp", "--no-playlist", "-j", url]
+
+    proxy = get_proxy()
+    if proxy:
+        cmd += ["--proxy", proxy]
+
+    add_cookies_arg(cmd)
+    cmd += build_youtube_args()
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
-            return jsonify({"error": result.stderr.strip().split("\n")[-1]}), 400
+            return jsonify({"error": yt_dlp_error_text(result)}), 400
 
         info = json.loads(result.stdout)
 
@@ -127,13 +276,15 @@ def get_info():
 @app.route("/api/download", methods=["POST"])
 def start_download():
     data = request.json
-    url = data.get("url", "").strip()
+    url = normalize_url((data or {}).get("url", ""))
     format_choice = data.get("format", "video")
     format_id = data.get("format_id")
     title = data.get("title", "")
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
+    if not validate_url(url):
+        return jsonify({"error": "Invalid URL. Paste a single full URL starting with http:// or https://"}), 400
 
     job_id = uuid.uuid4().hex[:10]
     jobs[job_id] = {"status": "downloading", "url": url, "title": title}

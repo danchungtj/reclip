@@ -1,2 +1,7 @@
 flask
-yt-dlp
+# yt-dlp from GitHub master — YouTube breaks yt-dlp within days/weeks.
+# PyPI version lags behind; master has the latest YouTube countermeasure fixes.
+yt-dlp @ https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz
+# PO Token provider plugin — generates Proof-of-Origin tokens required by
+# YouTube for high-quality formats. Works in script-deno mode (no HTTP server needed).
+bgutil-ytdlp-pot-provider
